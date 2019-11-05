@@ -1,0 +1,9 @@
+[submodule "external/cite"]
+	path = external/cite
+	url = https://github.com/BryanPlummer/cite.git
+[submodule "data/referit"]
+	path = data/referit
+	url = https://github.com/lichengunc/refer.git
+[submodule "data/flickr"]
+	path = data/flickr
+	url = https://github.com/BryanPlummer/flickr30k_entities.git
