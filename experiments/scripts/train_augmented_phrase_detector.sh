@@ -19,8 +19,8 @@ case ${DATASET} in
   referit)
     TRAIN_IMDB="referit_train"
     TEST_IMDB="referit_val"
-    STEPSIZE="[160000]"
-    ITERS=200000
+    STEPSIZE="[80000]"
+    ITERS=100000
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
     ;;
@@ -43,7 +43,7 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/trainval_net.py \
     --tag ${TAG} \
     --net ${NET} \
     --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS} \
-    TRAIN.STEPSIZE ${STEPSIZE}
+    TRAIN.STEPSIZE ${STEPSIZE} AUGMENTED_POSITIVE_PHRASES True
 
 NET_FINAL=output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_iter_${ITERS}.ckpt
 CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/compute_cca.py \
@@ -52,16 +52,18 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/compute_cca.py \
     --cfg experiments/cfgs/${NET}.yml \
     --tag ${TAG} \
     --net ${NET} \
-    --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS}
+    --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS} \
+    AUGMENTED_POSITIVE_PHRASES True
 
-./data/scripts/cache_cite_features.sh ${GPU_ID} ${DATASET} ${NET} ${TAG}
+./data/scripts/cache_augmented_cite_features.sh ${GPU_ID} ${DATASET} ${NET} ${TAG}
 
 cd external/cite
 CCA_PARAMS=../../output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_iter_${ITERS}/cca_parameters.pkl
 CUDA_VISIBLE_DEVICES=${GPU_ID} time python main.py \
-    --spatial --dataset ${DATASET} --name ${TAG} --datadir data/${DATASET}/${TAG} \
-    --cca_parameters ${CCA_PARAMS} --word_embedding ../../data/hglmm_6kd.txt \
-    --region_norm_axis 2
+    --spatial --use_augmented --dataset ${DATASET} --name ${TAG} \
+    --datadir /scratch2/bplum/new_cite/ --cca_parameters ${CCA_PARAMS} \
+    --word_embedding ../../data/hglmm_6kd.txt --region_norm_axis 2 \
+    --max_phrases 40 --ifs
 cd ../..
 
-./experiments/scripts/test_phrase_detector.sh ${GPU_ID} ${DATASET} ${NET} ${TAG}
+./experiments/scripts/test_augmented_phrase_detector.sh ${GPU_ID} ${DATASET} ${NET} ${TAG}

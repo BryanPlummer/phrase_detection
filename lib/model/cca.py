@@ -1,7 +1,7 @@
 # --------------------------------------------------------
-# Tensorflow Faster R-CNN
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Xinlei Chen
+# Written by Bryan Plummer based on code from Xinlei Chen
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division
@@ -16,11 +16,12 @@ except ImportError:
 import os
 import math
 
+from tqdm import tqdm
 from utils.timer import Timer
 from utils.blob import im_list_to_blob
 
 from model.train_val import filter_roidb
-from model.test import im_detect
+from model.feature_extractor import im_detect
 from model.config import cfg, get_output_dir
 from model.bbox_transform import clip_boxes, bbox_transform_inv
 from utils.cython_bbox import bbox_overlaps
@@ -76,10 +77,8 @@ def train_cca_model(sess, net, imdb, weights_filename):
   if not os.path.exists(feat_cache_dir):
     os.makedirs(feat_cache_dir)
 
-  # timers
-  _t = {'im_detect' : Timer(), 'misc' : Timer()}
   roidb = filter_roidb(imdb.roidb)
-  for i in range(len(roidb)):
+  for i in tqdm(range(len(roidb)), desc='computing cca features', total=len(roidb)):
     imname = roidb[i]['image'].split('.')[0].split(os.path.sep)[-1]
     det_file = os.path.join(feat_cache_dir,  imname + '.pkl')
     if os.path.exists(det_file):
@@ -87,7 +86,6 @@ def train_cca_model(sess, net, imdb, weights_filename):
 
     im = cv2.imread(roidb[i]['image'])
     phrases = roidb[i]['vecs']
-    _t['im_detect'].tic()
     im_boxes, features, phrases = im_detect(sess, net, im, phrases)
     good_phrases = []
     good_regions = []
@@ -108,12 +106,6 @@ def train_cca_model(sess, net, imdb, weights_filename):
       with open(det_file, 'wb') as f:
         pickle.dump(cca_features, f, pickle.HIGHEST_PROTOCOL)
 
-    _t['im_detect'].toc()
-
-    print('im_detect: {:d}/{:d} {:.3f}s' \
-          .format(i + 1, len(roidb), _t['im_detect'].average_time))
-
-  print('loading features from disk...')
   all_regions = []
   all_phrases = []
   outdim = 2048
@@ -121,7 +113,7 @@ def train_cca_model(sess, net, imdb, weights_filename):
     # box feats are 5-D
     outdim += 5
 
-  for i in range(len(roidb)):
+  for i in tqdm(range(len(roidb)), desc='loading cached features', total=len(roidb)):
     imname = roidb[i]['image'].split('.')[0].split(os.path.sep)[-1]
     det_file = os.path.join(feat_cache_dir, imname + '.pkl')
     if os.path.exists(det_file):
@@ -134,7 +126,7 @@ def train_cca_model(sess, net, imdb, weights_filename):
 
   all_regions = np.vstack(all_regions).astype(np.float32)
   all_phrases = np.vstack(all_phrases).astype(np.float32)
-  print('loading complete!')
+
   assert(len(all_regions) == len(all_phrases))
   all_layers = []
   for layer_id, outdim_size in enumerate(cfg.EMBED_LAYERS):

@@ -1,15 +1,17 @@
 # --------------------------------------------------------
-# Tensorflow Faster R-CNN
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Zheqi he, Xinlei Chen, based on code from Ross Girshick
+# Written by Bryan Plummer based on code from Ross Girshick,
+# Zheqi he, and Xinlei Chen
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import _init_paths
-from model.test import test_net
-from model.config import cfg, cfg_from_file, cfg_from_list, get_output_vocab
+from model.test import get_features, test_net
+from model.config import cfg, cfg_from_file, cfg_from_list, get_output_dir, get_output_vocab
+from model.external_interface import get_cite_scores
 from datasets.factory import get_imdb
 import argparse
 import pprint
@@ -32,6 +34,9 @@ def parse_args():
   parser.add_argument('--imdb', dest='imdb_name',
             help='dataset to test',
             default='voc_2007_test', type=str)
+  parser.add_argument('--cca_iters', dest='cca_iters',
+                      help='number of iterations before CCA initilization',
+                      default=360000, type=int)
   parser.add_argument('--comp', dest='comp_mode', help='competition mode',
             action='store_true')
   parser.add_argument('--num_dets', dest='max_per_image',
@@ -53,6 +58,22 @@ def parse_args():
 
   args = parser.parse_args()
   return args
+
+def restore_model(args, sess, variables_to_restore = None):
+  if args.model:
+    print(('Loading model check point from {:s}').format(args.model))
+    if variables_to_restore is None:
+      saver = tf.train.Saver()
+    else:
+      sess.run(tf.global_variables_initializer())
+      saver = tf.train.Saver(variables_to_restore)
+
+    saver.restore(sess, args.model)
+    print('Loaded.')
+  else:
+    print(('Loading initial weights from {:s}').format(args.weight))
+    sess.run(tf.global_variables_initializer())
+    print('Loaded.')
 
 if __name__ == '__main__':
   args = parse_args()
@@ -77,8 +98,7 @@ if __name__ == '__main__':
 
   tag = args.tag
   tag = tag if tag else 'default'
-  filename = tag + '/' + filename
-
+  filename = os.path.join(tag, filename)
   vocab = get_output_vocab(args.imdb_name)
   imdb = get_imdb(args.imdb_name, vocab)
   imdb.competition_mode(args.comp_mode)
@@ -86,35 +106,58 @@ if __name__ == '__main__':
   tfconfig = tf.ConfigProto(allow_soft_placement=True)
   tfconfig.gpu_options.allow_growth=True
 
+  # used to load CCA parameters
+  output_dir = get_output_dir(imdb, args.tag)
+  output_dir = output_dir.replace('test', 'train').replace('val', 'train')
+  cca_cache_dir = None
+  if cfg.CCA_INIT:
+    cca_cache_dir = os.path.join(output_dir, cfg.TRAIN.SNAPSHOT_PREFIX + '_iter_' + str(args.cca_iters))
+
   # init session
   sess = tf.Session(config=tfconfig)
   # load network
   if args.net == 'vgg16':
-    net = vgg16()
+    net = vgg16(cca_cache_dir, vecs=vocab['vecs'], max_tokens=vocab['max_tokens'])
   elif args.net == 'res50':
-    net = resnetv1(num_layers=50)
+    net = resnetv1(cca_cache_dir, num_layers=50, vecs=vocab['vecs'], max_tokens=vocab['max_tokens'])
   elif args.net == 'res101':
-    net = resnetv1(num_layers=101)
+    net = resnetv1(cca_cache_dir, num_layers=101, vecs=vocab['vecs'], max_tokens=vocab['max_tokens'])
   elif args.net == 'res152':
-    net = resnetv1(num_layers=152)
+    net = resnetv1(cca_cache_dir, num_layers=152, vecs=vocab['vecs'], max_tokens=vocab['max_tokens'])
   else:
     raise NotImplementedError
 
   # load model
-  net.create_architecture("TEST", imdb.num_classes, tag='default',
-                          anchor_scales=cfg.ANCHOR_SCALES,
-                          anchor_ratios=cfg.ANCHOR_RATIOS)
+  net.create_feat_extractor("TEST", imdb.num_classes, tag='default',
+                            anchor_scales=cfg.ANCHOR_SCALES,
+                            anchor_ratios=cfg.ANCHOR_RATIOS)
 
-  if args.model:
-    print(('Loading model check point from {:s}').format(args.model))
-    saver = tf.train.Saver()
-    saver.restore(sess, args.model)
-    print('Loaded.')
-  else:
-    print(('Loading initial weights from {:s}').format(args.weight))
-    sess.run(tf.global_variables_initializer())
-    print('Loaded.')
-
-  test_net(sess, net, imdb, filename, max_per_image=args.max_per_image)
-
+  restore_model(args, sess)
+  rois, features, im_shapes = get_features(sess, net, imdb)
   sess.close()
+
+  phrase_scores = None
+  if cfg.REGION_CLASSIFIER in ['cite']:
+    tf.reset_default_graph()
+    dataset = args.imdb_name.split('_')[0].lower()
+    model_filename = os.path.join('external', 'cite', 'runs', dataset, tag, 'model_best')
+    phrase_scores = get_cite_scores(imdb, model_filename, rois, features, im_shapes, cca_cache_dir, vocab['vecs'], vocab['max_tokens'])
+    tf.reset_default_graph()
+  
+  sess = tf.Session(config=tfconfig)
+  net.create_phrase_extractor("TEST", imdb.num_classes, tag='default')
+
+  variables_to_restore = None
+  if cfg.CCA_INIT and cfg.TEST_CCA:
+    # don't try to restore variables that deal with the classifier since
+    # we are testing just CCA here
+    variables = tf.contrib.slim.get_variables_to_restore()
+    variables_to_restore = [v for v in variables if v.name == 'word_embeddings:0' or v.name.split('/')[1].split('_')[0] != 'cls']
+    
+  restore_model(args, sess, variables_to_restore)
+  test_net(sess, net, imdb, rois, features, im_shapes, filename, phrase_scores=phrase_scores)
+  sess.close()
+
+
+
+

@@ -1,8 +1,7 @@
 # --------------------------------------------------------
-# Fast R-CNN
-# Copyright (c) 2015 Microsoft
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Ross Girshick and Xinlei Chen
+# Written by Bryan Plummer based on code from Ross Girshick
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division
@@ -37,6 +36,7 @@ class imdb(object):
     # Use this dict for storing dataset specific config options
     self.config = {}
     self._processed_phrases = None
+    self._phrases_per_image = None
 
   @property
   def name(self):
@@ -172,6 +172,28 @@ class imdb(object):
           roi['vecs'] = np.vstack((roi['vecs'], vecs))
           roi['boxes'] = np.vstack((roi['boxes'], boxes))
 
+  def get_phrase_predictions(self, im_boxes, gt, phrase, tokens, gt_scores, phrase_start, phrase_end):
+    phrase_index = self._phrase_to_ind[phrase]
+    labels = None
+    if phrase_index >= phrase_start and phrase_index < phrase_end:
+      boxes = im_boxes[phrase_index - phrase_start]
+      assert(boxes.shape[1] == 5)
+      pred = boxes[:, :-1].reshape((-1, 4)).astype(np.float)
+      overlaps = bbox_overlaps(pred, gt)
+      labels = np.zeros(len(overlaps), np.float32)
+      ind = np.where(overlaps >= cfg.TEST.SUCCESS_THRESH)[0]
+      if len(ind) > 1:
+        ind = min(ind)
+
+      labels[ind] = 1
+      if tokens is None or len(self._phrase2token[phrase].intersection(tokens)) > 0:
+        gt_scores[phrase_index] += list(boxes[:, -1])
+      else:
+        gt_scores[phrase_index] += list(np.ones(len(labels), np.float32) * -np.inf)
+
+      assert(len(labels) == len(boxes))
+    return phrase_index, labels
+
   def get_ap(self, all_boxes, phrase_start, phrase_end, output_dir=None):
     """
     all_boxes is a list of length number-of-classes.
@@ -181,29 +203,6 @@ class imdb(object):
 
     all_boxes[class][image] = [] or np.array of shape #dets x 5
     """
-    imdir = '/research/diva2/retrieved_sentences/'
-    with open(imdir + 'test.txt', 'r') as f:
-      images = []
-      for line in f:
-        images.append(line.strip())
-
-    scores = np.transpose(np.load(imdir + 'train_scores.npy'))
-
-    with open(imdir + 'train_sentences.txt', 'r') as f:
-      sentences = []
-      for line in f:
-        sentences.append(set(line.strip().split()))
-
-    N = 75
-    im2tok = {}
-    for im, im_scores in zip(images, scores):
-      ind = np.argpartition(im_scores, N)[:N]
-      tokens = set()
-      for i in ind:
-        tokens.update(sentences[i])
-
-      im2tok[im] = tokens
-
     # For each image get the score and label for the top prediction
     # for every phrase
     gt_scores = [[] for _ in range(self.num_phrases)]
@@ -213,63 +212,40 @@ class imdb(object):
     total_aug = 0.
     top1acc_aug = 0.
     for index, im_boxes in enumerate(all_boxes):
-      tokens = im2tok[self._im_ids[self._image_index[index]]]
+      tokens = None
+      if self._phrases_per_image is not None:
+        tokens = self._phrases_per_image[self._im_ids[self._image_index[index]]]
+
       roi = self.roidb[self._image_index[index]]
       phrases_seen = list()
       i = 0
       for gt, phrase in zip(roi['boxes'], roi['processed_phrases']):
         phrase_index = self._phrase_to_ind[phrase]
         gt = gt.reshape((1, 4)).astype(np.float)
-        if phrase_index >= phrase_start and phrase_index < phrase_end:
-          phrases_seen.append(phrase_index)
-          boxes = im_boxes[phrase_index - phrase_start]
-          assert(boxes.shape[1] == 5)
-          pred = boxes[:, :-1].reshape((-1, 4)).astype(np.float)
-          overlaps = bbox_overlaps(pred, gt)
-          labels = np.zeros(len(overlaps), np.float32)
-          ind = np.where(overlaps >= cfg.TEST.SUCCESS_THRESH)[0]
-          if len(ind) > 1:
-            ind = min(ind)
-
-          labels[ind] = 1
+        seen, labels = self.get_phrase_predictions(im_boxes, gt, phrase, tokens, gt_scores, phrase_start, phrase_end)
+        if labels is not None:
           top1acc += labels[0]
+          phrases_seen.append(seen)
           gt_labels[phrase_index] += list(labels)
-          if len(self._phrase2token[phrase].intersection(tokens)) > 0:
-            gt_scores[phrase_index] += list(boxes[:, -1])
-          else:
-            gt_scores[phrase_index] += list(np.ones(len(labels), np.float32) * -np.inf)
 
         if phrase in self._augmented_dictionary:
           for aug_phrase in self._augmented_dictionary[phrase]:
             phrase_index = self._phrase_to_ind[aug_phrase]
-            if phrase_index >= phrase_start and phrase_index < phrase_end:
-              phrases_seen.append(phrase_index)
-              boxes = im_boxes[phrase_index - phrase_start]
-              
-              pred = boxes[:, :-1].reshape((-1, 4)).astype(np.float)
-              overlaps = bbox_overlaps(pred, gt)
-              labels = np.zeros(len(overlaps), np.float32)
-              ind = np.where(overlaps >= cfg.TEST.SUCCESS_THRESH)[0]
-              if len(ind) > 1:
-                ind = min(ind)
-
-              labels[ind] = 1
+            seen, labels = self.get_phrase_predictions(im_boxes, gt, aug_phrase, tokens, gt_scores, phrase_start, phrase_end)
+            if labels is not None:
               top1acc_aug += labels[0]
               total_aug += 1
+              phrases_seen.append(seen)
               gt_labels[phrase_index] += list(labels)
-              if len(self._phrase2token[aug_phrase].intersection(tokens)) > 0:
-                gt_scores[phrase_index] += list(boxes[:, -1])
-              else:
-                gt_scores[phrase_index] += list(np.ones(len(labels), np.float32) * -np.inf)
 
       phrase_counts.update(phrases_seen)
       phrases_seen = set(phrases_seen)
       for phrase_index, boxes in zip(range(phrase_start, phrase_end), im_boxes):
         if phrase_index not in phrases_seen:
-          if len(self._phrase2token[self._processed_phrases[phrase_index]].intersection(tokens)) > 0:
+          if tokens is None or len(self._phrase2token[self._processed_phrases[phrase_index]].intersection(tokens)) > 0:
             gt_scores[phrase_index] += list(boxes[:, -1])
           else:
-            gt_scores[phrase_index] += list(np.ones(len(labels), np.float32) * -np.inf)
+            gt_scores[phrase_index] += list(np.ones(len(boxes), np.float32) * -np.inf)
 
           gt_labels[phrase_index] += list(np.zeros(len(boxes), np.float32))
 

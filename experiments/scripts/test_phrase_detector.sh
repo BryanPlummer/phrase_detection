@@ -20,7 +20,7 @@ case ${DATASET} in
     TRAIN_IMDB="referit_train"
     TEST_IMDB="referit_test"
     STEPSIZE="[160000]"
-    ITERS=360000
+    ITERS=200000
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
     ;;
@@ -34,14 +34,14 @@ LOG="experiments/logs/test_${NET}_${TRAIN_IMDB}_${TAG}.txt.`date +'%Y-%m-%d_%H-%
 exec &> >(tee -a "$LOG")
 echo Logging output to "$LOG"
 
-NET_FINAL=output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_faster_rcnn_iter_${ITERS}.ckpt
-
-CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/test_largevocab.py \
+NET_FINAL=output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_iter_${ITERS}.ckpt
+CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/test_net.py \
     --imdb ${TEST_IMDB} \
     --model ${NET_FINAL} \
     --cfg experiments/cfgs/${NET}.yml \
     --tag ${TAG} \
     --net ${NET} \
+    --cca_iters ${ITERS} \
     --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS} \
-
+    REGION_CLASSIFIER "cite" CCA_INIT True TEST.SENTENCE_FILTERING 0
 

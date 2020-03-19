@@ -22,7 +22,7 @@ case ${DATASET} in
     TEST_IMDB="referit_test"
     VAL_IMDB="referit_val"
     STEPSIZE="[160000]"
-    ITERS=360000
+    ITERS=200000
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
     ;;
@@ -36,8 +36,7 @@ LOG="experiments/logs/test_${NET}_${TRAIN_IMDB}_${TAG}.txt.`date +'%Y-%m-%d_%H-%
 exec &> >(tee -a "$LOG")
 echo Logging output to "$LOG"
 
-NET_FINAL=output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_faster_rcnn_iter_${ITERS}.ckpt
-
+NET_FINAL=output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_iter_${ITERS}.ckpt
 CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/cache_cite_features.py \
     --imdb ${TEST_IMDB} \
     --model ${NET_FINAL} \

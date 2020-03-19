@@ -19,8 +19,5 @@ referit_path = osp.join(this_dir, '..', 'data', 'referit')
 add_path(referit_path)
 
 # add external codebases
-two_branch_path = osp.join(this_dir, '..', '..', 'Two_branch_network')
-add_path(two_branch_path)
-
 cite_path = osp.join(this_dir, '..', 'external')
 add_path(cite_path)

@@ -1,7 +1,7 @@
 # --------------------------------------------------------
-# Tensorflow Faster R-CNN
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Xinlei Chen
+# Written by Bryan Plummer based on code from Xinlei Chen
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division
@@ -38,8 +38,8 @@ class Network(PhraseEncoder):
     self._gt_image = None
     self._variables_to_fix = {}
     self._cca_parameters = None
-    if output_dir is not None and cfg.CCA_INIT:
-      fn = os.path.join(output_dir, 'cca_parameters_512.pkl')
+    if output_dir is not None and cfg.CCA_INIT and cfg.REGION_CLASSIFIER != 'cite':
+      fn = os.path.join(output_dir, 'cca_parameters.pkl')
       self._cca_parameters = pickle.load(open(fn, 'rb'))
 
   def _reshape_layer(self, bottom, num_dim, name):
@@ -390,9 +390,8 @@ class Network(PhraseEncoder):
         weighted_phrase_loss = phrase_phrase_loss * cfg.TRAIN.EMBED_PHRASE_LOSS
         cross_entropy += weighted_phrase_loss
       elif cfg.REGION_CLASSIFIER == 'classifier':
-        label = tf.reshape(self._proposal_targets["labels"], [-1])
-        print(label)
-        cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=cls_score, labels=label))
+        label = tf.to_float(tf.squeeze(self._proposal_targets["labels"]))
+        cross_entropy = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=cls_score, labels=label))
 
       # RCNN, bbox loss
       bbox_pred = self._predictions['bbox_pred']
@@ -505,10 +504,6 @@ class Network(PhraseEncoder):
                                       biases_regularizer = tf.contrib.layers.l1_regularizer(cfg.TRAIN.WEIGHT_DECAY),
                                       weights_initializer = vis_weights_init,
                                       scope = 'cls_region_' + str(i)) * scaling
-
-        #if (i + 1) < len(cfg.EMBED_LAYERS):
-        #  phrase = tf.layers.dropout(phrase, seed=0, training=is_training, name = 'cls_phrase/dropout_' + str(i))
-        #  region = tf.layers.dropout(region, seed=0, training=is_training, name = 'cls_region/dropout_' + str(i))
 
       normed_region = tf.nn.l2_normalize(region, 1)
       normed_phrase = tf.nn.l2_normalize(phrase, 1)
@@ -662,7 +657,6 @@ class Network(PhraseEncoder):
 
       if cfg.REGION_CLASSIFIER == 'cite':
         best_index = self._best_index
-        score = cls_prob[:, :, 1]
       else:
         score, best_index =  tf.nn.top_k(score, k=cfg.TOP_K_PER_PHRASE)
         best_index = tf.reshape(best_index, [-1])

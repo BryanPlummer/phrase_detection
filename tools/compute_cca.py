@@ -1,7 +1,8 @@
 # --------------------------------------------------------
-# Tensorflow Faster R-CNN
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Zheqi he, Xinlei Chen, based on code from Ross Girshick
+# Written by Bryan Plummer based on code from Ross Girshick,
+# Zheqi he, and Xinlei Chen
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division

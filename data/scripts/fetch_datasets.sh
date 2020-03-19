@@ -5,7 +5,7 @@ set -e
 
 export PYTHONUNBUFFERED="True"
 
-if [! -d "pretrained/coco_2014_train+coco_2014_valminusminival" ]; then
+if [ ! -d "pretrained/coco_2014_train+coco_2014_valminusminival" ]; then
   echo "Cannot find COCO models. Please follow instructions in the readme to unpack the pretrained data before running this script."
   exit
 fi
@@ -35,11 +35,6 @@ cd referit
 wget http://bvisionweb1.cs.unc.edu/licheng/referit/data/images/saiapr_tc-12.zip
 unzip saiapr_tc-12.zip
 rm saiapr_tc-12.zip
-cd ..
-
-echo 'Downloading FastText Features'
-wget https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.en.300.vec.gz
-gunzip cc.en.300.vec.gz
 cd ..
 
 echo "ReferIt Game data unpacked, building vocabularies"

@@ -1,8 +1,7 @@
 # --------------------------------------------------------
-# Fast R-CNN
-# Copyright (c) 2015 Microsoft
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Ross Girshick
+# Written by Bryan Plummer based on code from Ross Girshick
 # --------------------------------------------------------
 
 """Factory method for easily getting imdbs by name."""

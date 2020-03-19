@@ -1,7 +1,7 @@
 # --------------------------------------------------------
-# Fast/er R-CNN
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Ross Girshick and Xinlei Chen
+# Written by Bryan Plummer based on code from Ross Girshick
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division

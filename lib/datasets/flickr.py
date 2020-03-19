@@ -1,7 +1,7 @@
 # --------------------------------------------------------
-# Fast/er R-CNN
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Ross Girshick and Xinlei Chen
+# Written by Bryan Plummer based on code from Ross Girshick
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division
@@ -38,6 +38,20 @@ class flickr(imdb):
     # Default to roidb handler
     self.set_proposal_method('gt')
     self.set_roidb_info()
+    if cfg.TEST.SENTENCE_FILTERING and image_set == 'test':
+      rsent_dir = osp.join(self._data_path, 'retrieved_sentences')
+      sentence_order = np.loadtxt(osp.join(rsent_dir, 'sentence_order.gz'), np.int32)
+      with open(osp.join(rsent_dir, 'train_sentences.txt'), 'r') as f:
+        sentences = [set(line.strip().split()) for line in f]
+        
+      self._phrases_per_image = {}
+      for im, order in zip(self._im_ids, sentence_order):
+        tokens = set()
+        for i in order[:cfg.TEST.SENTENCE_FILTERING]:
+          tokens.update(sentences[i])
+
+        self._phrases_per_image[im] = tokens
+
 
   def _load_image_set_index(self):
     """

@@ -1,7 +1,7 @@
 # --------------------------------------------------------
 # Tensorflow Faster R-CNN
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Zheqi He and Xinlei Chen
+# Written by Xinlei Chen
 # --------------------------------------------------------
 from __future__ import absolute_import
 from __future__ import division

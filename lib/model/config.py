@@ -137,7 +137,7 @@ __C.TRAIN.SNAPSHOT_ITERS = 5000
 
 # solver.prototxt specifies the snapshot path prefix, this adds an optional
 # infix to yield the path: <prefix>[_<infix>]_iters_XYZ.caffemodel
-__C.TRAIN.SNAPSHOT_PREFIX = 'res101_faster_rcnn'
+__C.TRAIN.SNAPSHOT_PREFIX = 'res101'
 
 # Normalize the targets (subtract empirical mean, divide by empirical stddev)
 __C.TRAIN.BBOX_NORMALIZE_TARGETS = True
@@ -254,8 +254,14 @@ __C.TEST.MODE = 'nms'
 __C.TEST.RPN_TOP_N = 5000
 
 # Maximum number of phrases paired with each image at test time
-#__C.TEST.MAX_PHRASES = 400
-__C.TEST.MAX_PHRASES = 650
+__C.TEST.MAX_PHRASES = 1700
+
+# CITE requires a lot of memory for its classifier, so use fewer phrases in a batch
+__C.TEST.CITE_CLASSIFIER_MAX_PHRASES = 650
+
+# Maximum number of sentences to retrieve for filtering likely phrases at
+# test time. Up to 1,000 sentences are cached
+__C.TEST.SENTENCE_FILTERING = 75
 
 #
 # ResNet options
@@ -307,7 +313,7 @@ __C.POOLING_MODE = 'crop'
 __C.POOLING_SIZE = 7
 
 # Default region classifier/loss type (entropy, cite, embed, classifier)
-__C.REGION_CLASSIFIER = 'cite'
+__C.REGION_CLASSIFIER = 'entropy'
 
 # The prefix used to identify the word embedding vocabulary
 __C.WORD_EMBEDDING_TYPE = 'hglmm'
@@ -316,16 +322,21 @@ __C.WORD_EMBEDDING_TYPE = 'hglmm'
 # type features are)
 __C.WORD_EMBEDDING_DIMENSIONS = {'hglmm' : 6000, 'fasttext' : 300}
 
+# Output dimensions of the desired word embedding features.  If
+# TEXT_FEAT_DIM != WORD_EMBEDDING_DIMENSIONS, a fully connected layer
+# is used to project the initial embeddings to the same dimensions
+__C.TEXT_FEAT_DIM = 6000
+
 # Use CCA to initialize the classification layers, only valid for 
 # "embed" classifier
-__C.CCA_INIT = True
+__C.CCA_INIT = False
 
 # Test a CCA model, only works when CCA_INIT is true
 __C.TEST_CCA = False
 
 # Use CCA to initialize the classification layers, only valid for 
 # "embed" classifier
-__C.EMBED_LAYERS = [-1]
+__C.EMBED_LAYERS = [-1, 512]
 
 # Concat 5-D box features consisting of normalized [x1, y1, x2, y2, area]
 # to inputs of the classifier layers
@@ -333,14 +344,11 @@ __C.BBOX_FEATS = True
 
 # Indicates whether to use just the ground truth annotated phrases or
 # if augmented set from tokenization and WordNet should be used
-__C.AUGMENTED_POSITIVE_PHRASES = True
-
-# Output dimensions of the desired word embedding features.  If
-# TEXT_FEAT_DIM != WORD_EMBEDDING_DIMENSIONS, a fully connected layer
-# is used to project the initial embeddings to the same dimensions
-__C.TEXT_FEAT_DIM = 6000
+__C.AUGMENTED_POSITIVE_PHRASES = False
 
 # Number of predictions made per-phrase
+# Currently values of more than 1 are not properly supported
+# The cod needs to fix AP calculation to account for this
 __C.TOP_K_PER_PHRASE = 1
 
 # Anchor scales for RPN
@@ -364,11 +372,9 @@ def get_output_vocab(imdb_name):
   # The following assumes each corrected phrase from above has an embedding in
   # the embedding text file.  Each row's entries are comma separated, where the
   # first entry is the phrase, and the next K are the embedding vector's values
-  cached_embedding = '/research/diva2/word_vectors/fivetask_hglmm_pca6000.txt'
-  #cached_embedding = 'data/flickr_fasttext_embedding.txt'
   embedding_dictionary = {}
   word_embedding_dims = __C.WORD_EMBEDDING_DIMENSIONS[__C.WORD_EMBEDDING_TYPE]
-  tok2idx, vecs = load_word_embeddings(cached_embedding, word_embedding_dims)
+  tok2idx, vecs = load_word_embeddings(osp.join(__C.DATA_DIR, 'hglmm_6kd.txt'), word_embedding_dims)
 
   max_tokens = 0
   final_embedding_dictionary = {}
@@ -434,7 +440,6 @@ def _merge_a_into_b(a, b):
         raise
     else:
       b[k] = v
-
 
 def cfg_from_file(filename):
   """Load a config file and merge it into the default options."""

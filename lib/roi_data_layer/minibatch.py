@@ -1,8 +1,8 @@
 # --------------------------------------------------------
-# Fast R-CNN
-# Copyright (c) 2015 Microsoft
+# Tensorflow Phrase Detection
 # Licensed under The MIT License [see LICENSE for details]
-# Written by Ross Girshick and Xinlei Chen
+# Written by Bryan Plummer based on code from Ross Girshick,
+# and Xinlei Chen
 # --------------------------------------------------------
 
 """Compute minibatch blobs for training a Fast R-CNN network."""

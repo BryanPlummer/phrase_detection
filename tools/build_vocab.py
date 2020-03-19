@@ -1,4 +1,9 @@
-## Includes code from http://norvig.com/spell-correct.html
+# --------------------------------------------------------
+# Tensorflow Phrase Detection
+# Licensed under The MIT License [see LICENSE for details]
+# Written by Bryan Plummer
+# Includes code from http://norvig.com/spell-correct.html
+# --------------------------------------------------------
 import _init_paths
 
 import pickle
