@@ -61,7 +61,7 @@ cd external/cite
 CCA_PARAMS=../../output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_iter_${ITERS}/cca_parameters.pkl
 CUDA_VISIBLE_DEVICES=${GPU_ID} time python main.py \
     --spatial --use_augmented --dataset ${DATASET} --name ${TAG} \
-    --datadir /scratch2/bplum/new_cite/ --cca_parameters ${CCA_PARAMS} \
+    --datadir data/${DATASET}/${TAG} --cca_parameters ${CCA_PARAMS} \
     --word_embedding ../../data/hglmm_6kd.txt --region_norm_axis 2 \
     --max_phrases 40 --ifs
 cd ../..
