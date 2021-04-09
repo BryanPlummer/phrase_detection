@@ -24,6 +24,15 @@ case ${DATASET} in
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
     ;;
+  vg)
+    TRAIN_IMDB="vg_train"
+    TEST_IMDB="vg_test"
+    STEPSIZE="[350000]"
+    ITERS=490000
+    ANCHORS="[4,8,16,32]"
+    RATIOS="[0.5,1,2]"
+    MAX_PHRASES=5
+    ;;
   *)
     echo "No dataset given"
     exit
@@ -43,5 +52,6 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/test_net.py \
     --net ${NET} \
     --cca_iters ${ITERS} \
     --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS} \
-    REGION_CLASSIFIER "cite" CCA_INIT True TEST.SENTENCE_FILTERING 0
+    REGION_CLASSIFIER "cite" CCA_INIT True \
+    TEST.SENTENCE_FILTERING 0
 

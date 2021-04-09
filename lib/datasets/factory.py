@@ -16,6 +16,7 @@ from model.config import cfg
 __sets = {}
 from datasets.flickr import flickr
 from datasets.referit import referit
+from datasets.vg import vg
 
 from refer import REFER
 
@@ -27,6 +28,10 @@ refer = REFER(cfg.DATA_DIR, dataset='refclef',  splitBy='berkeley')
 for split in ['train', 'test', 'val']:
   name = 'referit_{}'.format(split)
   __sets[name] = (lambda vocab, split=split: referit(vocab, split, data=refer))
+
+for split in ['train', 'test', 'val']:
+  name = 'vg_{}'.format(split)
+  __sets[name] = (lambda vocab, split=split: vg(vocab, split))
 
 def get_imdb(name, vocab = None):
   """Get an imdb (image database) by name."""

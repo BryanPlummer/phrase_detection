@@ -322,6 +322,7 @@ class Network(PhraseEncoder):
         concept_loss = tf.reduce_sum(tf.norm(concept_weight, axis=1, ord=1)) / self._num_phrases
         cross_entropy += concept_loss * cfg.TRAIN.CITE_CONCEPT_LOSS_WEIGHT
       elif cfg.REGION_CLASSIFIER == 'embed':
+        cls_score = tf.reshape(cls_score, [-1])
         if cfg.TRAIN.EMBED_SINGLE_CATEGORY:
           # All positive phrase-region pairs should be separated by a 
           # margin with all negative phrase-region pairs (even for
@@ -667,9 +668,10 @@ class Network(PhraseEncoder):
       if cfg.REGION_CLASSIFIER == 'cite':
         score = tf.gather_nd(score, ind)
 
-      self._predictions["best_index"] = best_index
-      self._predictions["bbox_pred"] = tf.gather_nd(boxes, ind)
-      self._predictions['cls_prob'] = tf.reshape(score, [-1])
+      self._predictions["best_index"] = tf.reshape(best_index, [-1, cfg.TOP_K_PER_PHRASE])
+      if training:
+        self._predictions["bbox_pred"] = tf.gather_nd(boxes, ind)
+      self._predictions['cls_prob'] = tf.reshape(score, [-1, cfg.TOP_K_PER_PHRASE])
       return self._predictions["bbox_pred"], self._predictions['cls_prob'], self._predictions["best_index"]
 
   def extract_features(self, sess, image, im_info):

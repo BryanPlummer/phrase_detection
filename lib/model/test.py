@@ -87,16 +87,23 @@ def _rescale_boxes(boxes, inds, scales):
 
 def im_detect(sess, net, boxes, features, phrase, im_shape, phrase_scores):
   bbox_pred, scores, index = net.extract_scores(sess, features, phrase, phrase_scores)
-  boxes = boxes[index]
   if cfg.TEST.BBOX_REG:
     # Apply bounding-box regression deltas
-    pred_boxes = bbox_transform_inv(boxes, bbox_pred)
-    pred_boxes = _clip_boxes(pred_boxes, im_shape)
+    oracle_boxes = []
+    pred_boxes = []
+    for ind, pred in zip(index, bbox_pred):
+      trans = bbox_transform_inv(boxes, pred[:, 4:])
+      trans = _clip_boxes(trans, im_shape)
+      oracle_boxes.append(np.expand_dims(trans, 0))
+      pred_boxes.append(np.expand_dims(trans[ind], 0))
+
+    oracle_boxes = np.vstack(oracle_boxes)
+    pred_boxes = np.vstack(pred_boxes)
   else:
     pred_boxes = boxes
 
-  out_scores = np.hstack((pred_boxes, scores[:, np.newaxis]))
-  return np.reshape(out_scores, [len(phrase), cfg.TOP_K_PER_PHRASE, 5])
+  out_scores = np.concatenate((pred_boxes, np.expand_dims(scores, 2)), axis=2)
+  return np.reshape(out_scores, [len(phrase), cfg.TOP_K_PER_PHRASE, 5]), oracle_boxes
 
 def cache_im_features(sess, net, im):
   blobs, im_scales = _get_blobs(im)
@@ -144,14 +151,17 @@ def test_net(sess, net, imdb, all_rois, all_features, im_shapes, weights_filenam
   n_batches = int(np.ceil(len(phrases) / float(max_phrases)))
   all_ap = np.zeros(len(phrases), np.float32)
   all_phrase_counts = Counter()
-  all_top1acc = 0.
-  all_total_aug = 0.
-  all_top1acc_aug = 0.
+  all_top1acc = np.zeros(imdb.num_phrases, np.int32)
+  all_total_aug = np.zeros_like(all_top1acc)
+  all_top1acc_aug = np.zeros_like(all_top1acc)
+  all_oracle = np.zeros(imdb.num_phrases, np.int32)
+  all_oracle_aug = np.zeros_like(all_top1acc)
   for batch_id in range(n_batches):
     phrase_start = batch_id*max_phrases
     phrase_end = min((batch_id+1)*max_phrases, len(phrases))
     phrase = np.vstack([imdb.get_word_embedding(p) for p in phrases[phrase_start:phrase_end]])
     all_boxes = []
+    oracle_boxes = []
     for i, rois, features, im_shape in tqdm(zip(range(num_images), all_rois, all_features, im_shapes),
                                             desc='scoring/bbreg phrase batch [%i/%i]' %
                                                   (batch_id + 1, n_batches),
@@ -160,7 +170,8 @@ def test_net(sess, net, imdb, all_rois, all_features, im_shapes, weights_filenam
       if phrase_scores is not None:
         im_scores = phrase_scores[i, phrase_start:phrase_end, :]
 
-      im_boxes = im_detect(sess, net, rois, features, phrase, im_shape, im_scores)
+      im_boxes, boxes = im_detect(sess, net, rois, features, phrase, im_shape, im_scores)
+      oracle_boxes.append(boxes)
       all_boxes.append(im_boxes)
 
     output_dir = get_output_dir(imdb, weights_filename)
@@ -171,12 +182,14 @@ def test_net(sess, net, imdb, all_rois, all_features, im_shapes, weights_filenam
     #  pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
 
     print('calculating ap for batch')
-    ap, phrase_counts, top1acc, total_aug, top1acc_aug = imdb.get_ap(all_boxes, phrase_start, phrase_end, output_dir)
+    ap, phrase_counts, top1acc, total_aug, top1acc_aug, top1acc_oracle, top1acc_aug_oracle = imdb.get_ap(all_boxes, oracle_boxes, phrase_start, phrase_end, output_dir)
     all_ap += ap
     all_phrase_counts += phrase_counts
     all_top1acc += top1acc
     all_total_aug += total_aug
     all_top1acc_aug += top1acc_aug
+    all_oracle += top1acc_oracle
+    all_oracle_aug += top1acc_aug_oracle
 
   print('Organizing output')
-  imdb.evaluate_detections(all_ap, all_phrase_counts, all_top1acc, all_total_aug, all_top1acc_aug)
+  imdb.evaluate_detections(all_ap, all_phrase_counts, all_top1acc, all_total_aug, all_top1acc_aug, all_oracle, all_oracle_aug)

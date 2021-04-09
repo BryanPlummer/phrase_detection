@@ -196,7 +196,7 @@ __C.TRAIN.RPN_BBOX_INSIDE_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
 __C.TRAIN.RPN_POSITIVE_WEIGHT = -1.0
 
 # Maximum number of phrases paired with each image during training
-__C.TRAIN.MAX_PHRASES = 5
+__C.TRAIN.MAX_PHRASES = 1
 
 #
 # Testing options
@@ -254,7 +254,7 @@ __C.TEST.MODE = 'nms'
 __C.TEST.RPN_TOP_N = 5000
 
 # Maximum number of phrases paired with each image at test time
-__C.TEST.MAX_PHRASES = 1700
+__C.TEST.MAX_PHRASES = 1500
 
 # CITE requires a lot of memory for its classifier, so use fewer phrases in a batch
 __C.TEST.CITE_CLASSIFIER_MAX_PHRASES = 650
@@ -336,7 +336,7 @@ __C.TEST_CCA = False
 
 # Use CCA to initialize the classification layers, only valid for 
 # "embed" classifier
-__C.EMBED_LAYERS = [-1, 512]
+__C.EMBED_LAYERS = [-1, 1024]
 
 # Concat 5-D box features consisting of normalized [x1, y1, x2, y2, area]
 # to inputs of the classifier layers
@@ -349,7 +349,7 @@ __C.AUGMENTED_POSITIVE_PHRASES = False
 # Number of predictions made per-phrase
 # Currently values of more than 1 are not properly supported
 # The cod needs to fix AP calculation to account for this
-__C.TOP_K_PER_PHRASE = 1
+__C.TOP_K_PER_PHRASE = 10
 
 # Anchor scales for RPN
 __C.ANCHOR_SCALES = [8,16,32]

@@ -19,8 +19,11 @@ from nltk.corpus import wordnet as wn
 
 from collections import Counter
 
+import multiprocessing as mp
+
 import roi_data_layer.roidb as rdl_roidb
 from datasets.factory import get_imdb
+from tqdm import tqdm
 
 """
 Parse input arguments
@@ -96,10 +99,10 @@ with open(os.path.join('data', 'stopwords.txt'), 'r') as f:
 
 # Match each word for each phrase back to their vectors so it uses
 # the same pre-processing as our vocabularly
-print('mapping phrases to vocab entries')
+print('mapping phrases to vocab entries...')
 correction_dictionary = {}
 rawphrase2testphrase = {}
-for orig_phrase in phrases:
+for orig_phrase in tqdm(phrases, desc='mapping progress', total=len(phrases)):
     phrase = orig_phrase.lower()
     corrected_tokens = []
     for raw_token in nltk.tokenize.word_tokenize(phrase):
@@ -168,82 +171,82 @@ manual_corrections = {'jacket' : set(['cap', 'case', 'dress']),
                       'hair' : set(['fabric', 'cloth', 'material']),
                       'skirt' : set(['girl', 'ring', 'doll', 'bird'])}
 
+def hypernum_mapping(args, is_flickr=None, manual_corrections=None, wn_lemmas=None):
+    if testphrase == 'unk':
+        return testphrase, []
+
+    # lets gather all hypernyms and synonyms
+    tokens = corrected_tokens[testphrase]
+    replacement_words = []
+    for i, token in enumerate(tokens):
+        replacement_words.append(set([token]))
+        if token not in wn_lemmas:
+            continue
+
+        skip_hypernym = token in ['left', 'right', 'black', 'white', 'brown', 'raft', 'pot']
+        syns = wn.synsets(token)
+        for syn in syns:
+            for word in syn.lemmas():
+                word = word.name().replace('_', ' ').encode('ascii', 'ignore')
+                if word in all_tokens:
+                    replacement_words[i].add(word)
+
+            if skip_hypernym:
+                continue
+
+            for hypernym in syn.hypernyms():
+                for word in hypernym.lemmas():
+                    word = word.name().replace('_', ' ').encode('ascii', 'ignore')
+                    if word in all_tokens and (token not in manual_corrections or word not in manual_corrections[token]):
+                        replacement_words[i].add(word)
+
+    candidates = set()
+    if is_flickr:
+        # also consider subsets of testphrase and replacements of the
+        # head word
+        copy_tokens = list(tokens)
+        for replacement in replacement_words[-1]:
+            copy_tokens[i] = replacement
+            set_tokens = set(copy_tokens)
+            for phrase, words in corrected_tokens.iteritems():
+                if phrase == testphrase or phrase in candidates:
+                    continue
+                    
+                words = set(words)
+                if len(words.intersection(set_tokens)) == len(words):
+                    candidates.add(phrase)
+
+    # now lets handle replacing words
+    for phrase, words in corrected_tokens.iteritems():
+        if phrase == testphrase or len(words) != len(replacement_words) or phrase in candidates:
+            continue
+
+        match = True
+        for replacements, word in zip(replacement_words, words):
+            match = word in replacements
+            if not match:
+                break
+
+        if match:
+            candidates.add(phrase)
+
+    return testphrase, list(candidates)
+
+pool = mp.Pool(mp.cpu_count())
 for split in splits:
     corrected_phrases = output_vocab[split + '_corrected']
     corrected_tokens = {}
     for phrase in corrected_phrases:
         corrected_tokens[phrase] = phrase.split()
 
+    parallel_inputs = [(i, testphrase) for i, testphrase in enumerate(corrected_phrases)]
+    f = lambda x:  hypernum_mapping(x, is_flickr=is_flickr, manual_corrections=manual_corrections, wn_lemmas=wn_lemmas)
+    phrases = pool.map(f, parallel_inputs)
     hypernym_dictionary = {}
-    for i, testphrase in enumerate(corrected_phrases):
-        if i % 2500 == 0:
-            print('split %s: %i of %i' % (split, i, len(corrected_phrases)))
-
-        hypernym_dictionary[testphrase] = []
-        if testphrase == 'unk':
-            continue
-
-        # lets gather all hypernyms and synonyms
-        tokens = corrected_tokens[testphrase]
-        replacement_words = []
-        for i, token in enumerate(tokens):
-            replacement_words.append(set([token]))
-            if token not in wn_lemmas:
-                continue
-
-            skip_hypernym = token in ['left', 'right', 'black', 'white', 'brown', 'raft', 'pot']
-            syns = wn.synsets(token)
-            for syn in syns:
-                for word in syn.lemmas():
-                    word = word.name().replace('_', ' ').encode('ascii', 'ignore')
-                    if word in all_tokens:
-                        replacement_words[i].add(word)
-
-                if skip_hypernym:
-                    continue
-
-                for hypernym in syn.hypernyms():
-                    for word in hypernym.lemmas():
-                        word = word.name().replace('_', ' ').encode('ascii', 'ignore')
-                        if word in all_tokens and (token not in manual_corrections or word not in manual_corrections[token]):
-                            replacement_words[i].add(word)
-
-        candidates = set()
-        if is_flickr:
-            # also consider subsets of testphrase and replacements of the
-            # head word
-            copy_tokens = list(tokens)
-            for replacement in replacement_words[-1]:
-                copy_tokens[i] = replacement
-                set_tokens = set(copy_tokens)
-                for phrase, words in corrected_tokens.iteritems():
-                    if phrase == testphrase or phrase in candidates:
-                        continue
-                    
-                    words = set(words)
-                    if len(words.intersection(set_tokens)) == len(words):
-                        candidates.add(phrase)
-
-        # now lets handle replacing words
-        for phrase, words in corrected_tokens.iteritems():
-            if phrase == testphrase or len(words) != len(replacement_words) or phrase in candidates:
-                continue
-
-            match = True
-            for replacements, word in zip(replacement_words, words):
-                match = word in replacements
-                if not match:
-                    break
-
-            if match:
-                candidates.add(phrase)
-
-        hypernym_dictionary[testphrase] = list(candidates)
-
     corrected_filename = os.path.join(vocab_dir, '%s_%s_corrected.txt' % (args.dataset, split))
     with open(corrected_filename, 'w') as f:
-        for phrase in corrected_phrases:
-            for w in hypernym_dictionary[phrase]:
+        for phrase, candidiates in phrases:
+            for w in candidates:
                 phrase += ',' + w
 
             f.write(phrase + '\n')

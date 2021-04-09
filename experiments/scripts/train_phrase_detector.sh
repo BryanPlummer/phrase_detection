@@ -15,6 +15,7 @@ case ${DATASET} in
     ITERS=360000
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
+    MAX_PHRASES=5
     ;;
   referit)
     TRAIN_IMDB="referit_train"
@@ -23,6 +24,16 @@ case ${DATASET} in
     ITERS=200000
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
+    MAX_PHRASES=2
+    ;;
+  vg)
+    TRAIN_IMDB="vg_train"
+    TEST_IMDB="vg_val"
+    STEPSIZE="[350000]"
+    ITERS=490000
+    ANCHORS="[4,8,16,32]"
+    RATIOS="[0.5,1,2]"
+    MAX_PHRASES=2
     ;;
   *)
     echo "No dataset given"
@@ -34,26 +45,7 @@ LOG="experiments/logs/${NET}_${TRAIN_IMDB}_${TAG}_${NET}.txt.`date +'%Y-%m-%d_%H
 exec &> >(tee -a "$LOG")
 echo Logging output to "$LOG"
 
-CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/trainval_net.py \
-    --weight pretrained/coco_2014_train+coco_2014_valminusminival/${NET}_faster_rcnn_iter_1190000.ckpt \
-    --imdb ${TRAIN_IMDB} \
-    --imdbval ${TEST_IMDB} \
-    --iters ${ITERS} \
-    --cfg experiments/cfgs/${NET}.yml \
-    --tag ${TAG} \
-    --net ${NET} \
-    --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS} \
-    TRAIN.STEPSIZE ${STEPSIZE}
-
 NET_FINAL=output/${NET}/${TRAIN_IMDB}/${TAG}/${NET}_iter_${ITERS}.ckpt
-CUDA_VISIBLE_DEVICES=${GPU_ID} time python ./tools/compute_cca.py \
-    --imdb ${TRAIN_IMDB} \
-    --model ${NET_FINAL} \
-    --cfg experiments/cfgs/${NET}.yml \
-    --tag ${TAG} \
-    --net ${NET} \
-    --set ANCHOR_SCALES ${ANCHORS} ANCHOR_RATIOS ${RATIOS}
-
 ./data/scripts/cache_cite_features.sh ${GPU_ID} ${DATASET} ${NET} ${TAG}
 
 cd external/cite
@@ -65,3 +57,4 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} time python main.py \
 cd ../..
 
 ./experiments/scripts/test_phrase_detector.sh ${GPU_ID} ${DATASET} ${NET} ${TAG}
+

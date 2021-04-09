@@ -78,7 +78,9 @@ def train_cca_model(sess, net, imdb, weights_filename):
     os.makedirs(feat_cache_dir)
 
   roidb = filter_roidb(imdb.roidb)
-  for i in tqdm(range(len(roidb)), desc='computing cca features', total=len(roidb)):
+  list_items = list(range(len(roidb)))
+  #np.random.shuffle(list_items)
+  for i in tqdm(list_items, desc='computing cca features', total=len(roidb)):
     imname = roidb[i]['image'].split('.')[0].split(os.path.sep)[-1]
     det_file = os.path.join(feat_cache_dir,  imname + '.pkl')
     if os.path.exists(det_file):
@@ -110,7 +112,7 @@ def train_cca_model(sess, net, imdb, weights_filename):
   all_phrases = []
   outdim = 2048
   if cfg.BBOX_FEATS:
-    # box feats are 5-D
+    #box feats are 5-D
     outdim += 5
 
   for i in tqdm(range(len(roidb)), desc='loading cached features', total=len(roidb)):
@@ -120,7 +122,7 @@ def train_cca_model(sess, net, imdb, weights_filename):
       with open(det_file, 'rb') as f:
         cca_features = pickle.load(f)
 
-      n_items = int(float(len(cca_features['vis'])))# // 3.)
+      n_items = min(10, int(float(len(cca_features['vis']))))# // 3.)
       all_regions.append(cca_features['vis'][:n_items, :outdim])
       all_phrases.append(cca_features['lang'][:n_items])
 

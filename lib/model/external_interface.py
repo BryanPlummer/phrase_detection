@@ -62,7 +62,7 @@ def get_projected_phrases(args, imdb, model_filename, vecs, max_length):
     saver.restore(sess, model_filename)
     phrases = imdb.phrases
     n_batches = int(np.ceil(len(phrases) / float(cfg.TEST.MAX_PHRASES)))
-    all_phrases, all_concepts = [], []
+    all_phrases = []
     eps = 1e-10
     plh = model.get_phrase_placeholders()
     for batch_id in tqdm(range(n_batches), desc='computing projected phrases', total=n_batches):
@@ -74,27 +74,24 @@ def get_projected_phrases(args, imdb, model_filename, vecs, max_length):
                      plh['phrase_count'] : len(phrase) + eps,
                      plh['train_phase'] : False}
 
-        phrase_embed, concepts, _, _ = sess.run(phrase_encoding, feed_dict=feed_dict)
+        phrase_embed, _ = sess.run(phrase_encoding, feed_dict=feed_dict)
         all_phrases.append(phrase_embed.squeeze())
-        all_concepts.append(concepts.squeeze())
 
     all_phrases = np.vstack(all_phrases)
-    all_concepts = np.vstack(all_concepts)
     sess.close()
-    return all_phrases, all_concepts
+    return all_phrases
 
 def get_cite_scores(imdb, model_filename, rois, features, im_shapes, cca_cache_dir, vecs, max_length):
     args = CiteArgs(cca_cache_dir)
     features = get_projected_regions(args, model_filename, vecs, features)
-    phrases, concepts = get_projected_phrases(args, imdb, model_filename, vecs, max_length)
+    phrases = get_projected_phrases(args, imdb, model_filename, vecs, max_length)
 
     model = CITE(args)
     plh = model.get_placeholders()
     embed_dim = phrases.shape[1]
     region_embed_plh = tf.placeholder(tf.float32, shape=[args.batch_size, None, embed_dim])
     phrase_embed_plh = tf.placeholder(tf.float32, shape=[None, embed_dim])
-    phrase_concepts_plh = tf.placeholder(tf.float32, shape=[None, concepts.shape[1]])
-    model_scores = model.get_max_phrase_scores(phrase_embed_plh, phrase_concepts_plh, region_embed_plh, embed_dim)
+    model_scores = model.get_max_phrase_scores(phrase_embed_plh, region_embed_plh, embed_dim)
 
     sess = tf.Session()
     saver = tf.train.Saver()
@@ -105,9 +102,7 @@ def get_cite_scores(imdb, model_filename, rois, features, im_shapes, cca_cache_d
         phrase_start = phrase_batch_id*cfg.TEST.MAX_PHRASES
         phrase_end = min((phrase_batch_id+1)*cfg.TEST.MAX_PHRASES, len(phrases))
         phrase_embed = phrases[phrase_start:phrase_end]
-        phrase_concepts = concepts[phrase_start:phrase_end]
         feed_dict = {phrase_embed_plh : phrase_embed,
-                     phrase_concepts_plh : phrase_concepts,
                      plh['phrases_per_image'] : len(phrase_embed),
                      plh['train_phase'] : False}
 

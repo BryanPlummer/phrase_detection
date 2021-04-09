@@ -126,11 +126,12 @@ def cache_gt_features(sess, net, imdb, weights_filename, max_per_image=100, thre
   if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-  datafn = os.path.join(output_dir, split + '_features.h5')
-  print('opening ', datafn)
-  f_out = h5py.File(datafn, 'w')
-  print('open')
-  pairs = []
+  thresh = 0.5
+  if imdb._image_set == 'train':
+    thresh = 0.6
+
+  #output_dir = os.path.join('/scratch2/bplum/new_cite/referit')
+  pairs, overlaps, scores = [], [], []
   phrases = set()
   loc_predictions = []
   for i in tqdm(range(num_images), desc='caching features', total=num_images):
@@ -149,28 +150,35 @@ def cache_gt_features(sess, net, imdb, weights_filename, max_per_image=100, thre
 
     num_gt_annotations = len(roi['phrases'])
     predictions, features, _ = im_detect(sess, net, im, phrase_features)
+    np.save(os.path.join(output_dir, im_id + '.npy'), features)
     for p_id, phrase, boxes, gt in zip(range(len(predictions)), roi['processed_phrases'], 
-                                            predictions, roi['boxes']):
+                                       predictions, roi['boxes']):
+
       gt = gt.reshape((1, 4)).astype(np.float)
-      scores = boxes[:, -1]
       pred = boxes[:, :-1].reshape((-1, 4)).astype(np.float)
-      overlaps = np.concatenate((bbox_overlaps(pred, gt).squeeze(), gt.squeeze()))
-      loc_predictions.append(float(overlaps[np.argmax(scores)] >= 0.5))
+      iou = bbox_overlaps(pred, gt).squeeze()
+      pos = np.where(iou >= thresh)[0]
+      if imdb._image_set == 'train':
+        num_pos = len(pos)
+        num_neg = num_pos * 2
+        negs = np.where(iou < 0.3)[0]
+        if len(negs) < num_neg:
+          negs = np.where(iou < 0.4)[0]
+
+        pos = (pos, negs, num_neg)
+
+      overlaps.append(pos)
+      loc_predictions.append(float(iou[np.argmax(boxes[:, -1])] >= 0.5))
       gt_phrases = set([phrase])
       phrase = phrase.strip().replace(' ', '+')
       phrases.add(phrase)
-      pair_id = '%s_%s_%i' % (im_id, phrase, p_id)
-      f_out.create_dataset(pair_id + '_boxes', data=boxes)
-      f_out.create_dataset(pair_id + '_scores', data=scores)
-      f_out.create_dataset(pair_id, data=overlaps)
 
       pairs.append([im_id, phrase, p_id, int(p_id < num_gt_annotations)])
+      scores.append(boxes)
 
-    f_out.create_dataset(im_id, data=features)
-
-  f_out.create_dataset('phrases', data=list(phrases))
-  f_out.create_dataset('pairs', data=pairs)  
-  f_out.close()
+  out_data = {'phrases' : phrases, 'pairs' : pairs, 'overlaps' : overlaps}
+  pickle.dump(out_data, open(os.path.join(output_dir, split + '.pkl'), 'wb'), pickle.HIGHEST_PROTOCOL)
+  pickle.dump(scores, open(os.path.join(output_dir, split + '_scores.pkl'), 'wb'), pickle.HIGHEST_PROTOCOL)
   print('created output for {:d} pairs'.format(len(pairs)))
   print('localization', sum(loc_predictions) / len(loc_predictions))
 

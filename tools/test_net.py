@@ -16,6 +16,7 @@ from datasets.factory import get_imdb
 import argparse
 import pprint
 import time, os, sys
+import pickle
 
 import tensorflow as tf
 from nets.vgg16 import vgg16
@@ -132,8 +133,14 @@ if __name__ == '__main__':
                             anchor_scales=cfg.ANCHOR_SCALES,
                             anchor_ratios=cfg.ANCHOR_RATIOS)
 
-  restore_model(args, sess)
-  rois, features, im_shapes = get_features(sess, net, imdb)
+  #test_net(sess, net, imdb, None, None, None, None)
+  #sys.exit()
+
+  #restore_model(args, sess)
+  #rois, features, im_shapes = get_features(sess, net, imdb)
+  #pickle.dump({'rois' : rois, 'features' : features, 'shapes' : im_shapes}, open( "save.p", "wb" ) )
+  data = pickle.load(open('save.p', 'rb'))
+  rois, features, im_shapes = data['rois'], data['features'], data['shapes']
   sess.close()
 
   phrase_scores = None
@@ -141,6 +148,7 @@ if __name__ == '__main__':
     tf.reset_default_graph()
     dataset = args.imdb_name.split('_')[0].lower()
     model_filename = os.path.join('external', 'cite', 'runs', dataset, tag, 'model_best')
+    #model_filename = os.path.join('external', 'cite', 'runs', dataset, 'revision_nocca', 'model_best')
     phrase_scores = get_cite_scores(imdb, model_filename, rois, features, im_shapes, cca_cache_dir, vocab['vecs'], vocab['max_tokens'])
     tf.reset_default_graph()
   

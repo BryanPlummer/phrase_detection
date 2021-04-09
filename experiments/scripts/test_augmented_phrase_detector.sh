@@ -19,10 +19,19 @@ case ${DATASET} in
   referit)
     TRAIN_IMDB="referit_train"
     TEST_IMDB="referit_test"
-    STEPSIZE="[80000]"
-    ITERS=100000
+    STEPSIZE="[160000]"
+    ITERS=200000
     ANCHORS="[4,8,16,32]"
     RATIOS="[0.5,1,2]"
+    ;;
+  vg)
+    TRAIN_IMDB="vg_train"
+    TEST_IMDB="vg_test"
+    STEPSIZE="[350000]"
+    ITERS=490000
+    ANCHORS="[4,8,16,32]"
+    RATIOS="[0.5,1,2]"
+    MAX_PHRASES=5
     ;;
   *)
     echo "No dataset given"

@@ -114,20 +114,22 @@ class imdb(object):
     for roi in self.roidb:
       roi['vecs'] = []
       roi['processed_phrases'] = []
-      for raw_phrase in roi['phrases']:
-        if raw_phrase.strip() and self._word_embedding is not None:
-          phrase, vec = self._word_embedding[raw_phrase]
-        else:
-          phrase = 'unk'
-          vec = np.zeros(cfg.TEXT_FEAT_DIM, np.float32)
+      if self._word_embedding is not None:
+        for raw_phrase in roi['phrases']:
+          if raw_phrase.strip():
+            phrase, vec = self._word_embedding[raw_phrase]
+            max_length = vec.shape[-1]
+          else:
+            phrase = 'unk'
+            vec = np.zeros(max_length, np.int32)
 
-        all_processed_phrases.add(phrase)
-        self._phrase2vec[phrase] = vec
-        roi['vecs'].append(vec)
-        roi['processed_phrases'].append(phrase)
+          all_processed_phrases.add(phrase)
+          self._phrase2vec[phrase] = vec
+          roi['vecs'].append(vec)
+          roi['processed_phrases'].append(phrase)
 
-      if len(roi['vecs']) > 0:
-        roi['vecs'] = np.vstack(roi['vecs'])
+        if len(roi['vecs']) > 0:
+          roi['vecs'] = np.vstack(roi['vecs'])
 
     self._processed_phrases = list(all_processed_phrases)
     self._phrase2token = {}
@@ -172,11 +174,14 @@ class imdb(object):
           roi['vecs'] = np.vstack((roi['vecs'], vecs))
           roi['boxes'] = np.vstack((roi['boxes'], boxes))
 
-  def get_phrase_predictions(self, im_boxes, gt, phrase, tokens, gt_scores, phrase_start, phrase_end):
+  def get_phrase_predictions(self, im_boxes, im_oracle_boxes, gt, phrase, tokens, gt_scores, phrase_start, phrase_end):
     phrase_index = self._phrase_to_ind[phrase]
     labels = None
+    oracle = 0
     if phrase_index >= phrase_start and phrase_index < phrase_end:
-      boxes = im_boxes[phrase_index - phrase_start]
+      #pred = im_oracle_boxes[phrase_index - phrase_start].astype(np.float)
+      #oracle = int(max(bbox_overlaps(pred, gt)) >= cfg.TEST.SUCCESS_THRESH)
+      boxes = im_boxes[phrase_index - phrase_start].reshape((cfg.TOP_K_PER_PHRASE, 5))
       assert(boxes.shape[1] == 5)
       pred = boxes[:, :-1].reshape((-1, 4)).astype(np.float)
       overlaps = bbox_overlaps(pred, gt)
@@ -192,9 +197,9 @@ class imdb(object):
         gt_scores[phrase_index] += list(np.ones(len(labels), np.float32) * -np.inf)
 
       assert(len(labels) == len(boxes))
-    return phrase_index, labels
+    return phrase_index, labels, oracle
 
-  def get_ap(self, all_boxes, phrase_start, phrase_end, output_dir=None):
+  def get_ap(self, all_boxes, oracle_boxes, phrase_start, phrase_end, output_dir=None):
     """
     all_boxes is a list of length number-of-classes.
     Each list element is a list of length number-of-images.
@@ -207,11 +212,14 @@ class imdb(object):
     # for every phrase
     gt_scores = [[] for _ in range(self.num_phrases)]
     gt_labels = [[] for _ in range(self.num_phrases)]
+    top1acc = np.zeros(self.num_phrases, np.int32)
+    top1acc_aug = np.zeros_like(top1acc)
+    top1acc_oracle = np.zeros(self.num_phrases, np.int32)
+    top1acc_aug_oracle = np.zeros_like(top1acc)
     phrase_counts = Counter()
-    top1acc = 0.
-    total_aug = 0.
-    top1acc_aug = 0.
+    total_aug = np.zeros_like(top1acc)
     for index, im_boxes in enumerate(all_boxes):
+      im_oracle_boxes = None#oracle_boxes[index]
       tokens = None
       if self._phrases_per_image is not None:
         tokens = self._phrases_per_image[self._im_ids[self._image_index[index]]]
@@ -222,19 +230,21 @@ class imdb(object):
       for gt, phrase in zip(roi['boxes'], roi['processed_phrases']):
         phrase_index = self._phrase_to_ind[phrase]
         gt = gt.reshape((1, 4)).astype(np.float)
-        seen, labels = self.get_phrase_predictions(im_boxes, gt, phrase, tokens, gt_scores, phrase_start, phrase_end)
+        seen, labels, oracle = self.get_phrase_predictions(im_boxes, im_oracle_boxes, gt, phrase, tokens, gt_scores, phrase_start, phrase_end)
         if labels is not None:
-          top1acc += labels[0]
+          top1acc_oracle[phrase_index] += oracle
+          top1acc[phrase_index] += labels[0]
           phrases_seen.append(seen)
           gt_labels[phrase_index] += list(labels)
 
         if phrase in self._augmented_dictionary:
           for aug_phrase in self._augmented_dictionary[phrase]:
             phrase_index = self._phrase_to_ind[aug_phrase]
-            seen, labels = self.get_phrase_predictions(im_boxes, gt, aug_phrase, tokens, gt_scores, phrase_start, phrase_end)
+            seen, labels, oracle = self.get_phrase_predictions(im_boxes, im_oracle_boxes, gt, aug_phrase, tokens, gt_scores, phrase_start, phrase_end)
             if labels is not None:
-              top1acc_aug += labels[0]
-              total_aug += 1
+              top1acc_aug_oracle[phrase_index] += oracle
+              top1acc_aug[phrase_index] += labels[0]
+              total_aug[phrase_index] += 1
               phrases_seen.append(seen)
               gt_labels[phrase_index] += list(labels)
 
@@ -269,9 +279,9 @@ class imdb(object):
 
       ap[phrase_index] = c
 
-    return ap, phrase_counts, top1acc, total_aug, top1acc_aug
+    return ap, phrase_counts, top1acc, total_aug, top1acc_aug, top1acc_oracle, top1acc_aug_oracle
 
-  def evaluate_detections(self, ap, phrase_counts, top1acc, total_aug, top1acc_aug):
+  def evaluate_detections(self, ap, phrase_counts, top1acc, total_aug, top1acc_aug, top1acc_oracle, top1acc_aug_oracle):
     """
     all_boxes is a list of length number-of-classes.
     Each list element is a list of length number-of-images.
@@ -285,7 +295,11 @@ class imdb(object):
     mAP = np.zeros(len(count_thresholds))
     occurrences = np.zeros_like(mAP)
     samples = np.zeros_like(mAP)
-    count_index = 0
+    samples_aug = np.zeros_like(mAP)
+    acc = np.zeros_like(mAP)
+    acc_aug = np.zeros_like(mAP)
+    oracle = np.zeros_like(mAP)
+    oracle_aug = np.zeros_like(mAP)
     for phrase, phrase_index in self._phrase_to_ind.iteritems():
       n_occurrences = phrase_counts[phrase_index]
       if n_occurrences < 1:
@@ -299,6 +313,11 @@ class imdb(object):
       mAP[count_index] += ap[phrase_index]
       occurrences[count_index] += 1
       samples[count_index] += n_occurrences
+      acc[count_index] += top1acc[phrase_index]
+      acc_aug[count_index] += top1acc_aug[phrase_index]
+      samples_aug[count_index] += total_aug[phrase_index]
+      oracle[count_index] += top1acc_oracle[phrase_index]
+      oracle_aug[count_index] += top1acc_aug_oracle[phrase_index]
 
     mAP = mAP / occurrences
     thresh_string = '\t'.join([str(thresh) for thresh in count_thresholds])
@@ -307,18 +326,33 @@ class imdb(object):
     ap_string = '\t'.join(['%.1f' % round(t * 100, 2) for t in mAP])
     print('AP:            \t' + ap_string + '\t%.1f' % round(np.mean(mAP) * 100, 2))
 
+    n_total = np.sum(samples)
+    n_aug = np.sum(total_aug)
+    loc_acc = np.sum(acc) / (n_total - n_aug)
+    group_acc = acc / (samples - samples_aug)
+    acc_string = '\t'.join(['%.1f' % round(t * 100, 2) for t in group_acc])
+    print('Loc Acc:\t' + acc_string + '\t%.1f' % round(loc_acc * 100, 2))
+    
+    loc_acc = np.sum(oracle) / (n_total - n_aug)
+    group_acc = oracle / (samples - samples_aug)
+    acc_string = '\t'.join(['%.1f' % round(t * 100, 2) for t in group_acc])
+    print('Oracle Acc:\t' + acc_string + '\t%.1f' % round(loc_acc * 100, 2))
+    if cfg.AUGMENTED_POSITIVE_PHRASES:
+      loc_acc = (np.sum(acc) + np.sum(acc_aug)) / n_total
+      group_acc = (acc+acc_aug) / samples
+      acc_string = '\t'.join(['%.1f' % round(t * 100, 2) for t in group_acc])
+      print('Aug Loc Acc:\t' + acc_string + '\t%.1f' % round(loc_acc * 100, 2))
+
+      loc_acc = (np.sum(oracle) + np.sum(oracle_aug)) / n_total
+      group_acc = (oracle+oracle_aug) / samples
+      acc_string = '\t'.join(['%.1f' % round(t * 100, 2) for t in group_acc])
+      print('Oracle Aug Acc:\t' + acc_string + '\t%.1f' % round(loc_acc * 100, 2))
+
     occ_string = '\t'.join(['%i' % occ for occ in occurrences])
     print('Per Thresh Cnt:\t' + occ_string + '\t%i' % np.sum(occurrences))
 
-    n_total = np.sum(samples)
     sample_string = '\t'.join(['%i' % item for item in samples])
     print('Instance Cnt:  \t' + sample_string + '\t%i' % n_total)
-
-    acc = round((top1acc/(n_total - total_aug))*100, 2)
-    print('Orig Localization Accuracy: %.2f' % acc)
-    if cfg.AUGMENTED_POSITIVE_PHRASES:
-      acc = round(((top1acc + top1acc_aug)/n_total)*100, 2)
-      print('Orig + Augmented Localization Accuracy: %.2f' % acc)
 
     if cfg.TOP_K_PER_PHRASE > 1:
       n_correct = np.sum([np.sum(item) for item in gt_labels])
